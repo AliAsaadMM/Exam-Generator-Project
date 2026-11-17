@@ -105,8 +105,8 @@ iraqi-exam-generator/
 
 ### 1. استنساخ المستودع
 ```bash
-git clone https://github.com/AliAsaadMM/iraqi-exam-generator.git
-cd iraqi-exam-generator
+git clone https://github.com/AliAsaadMM/Exam-Generator-Project.git
+cd Exam-Generator-Project
 ```
 
 ### 2. إنشاء بيئة افتراضية وتثبيت المكتبات
