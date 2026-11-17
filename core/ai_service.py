@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 خدمات الذكاء الاصطناعي المعتمدة على نموذج gemini-3.6-flash
+مع دعم إعادة المحاولة التلقائية عند ضغط الخوادم (503)
 """
 
+import time
 from google import genai
 from google.genai import types
 from core.subject_presets import get_subject_preset
@@ -14,6 +16,42 @@ def _get_client(api_key: str) -> genai.Client:
     if not api_key or not api_key.strip():
         raise ValueError("يرجى إدخال مفتاح Gemini API Key أولاً.")
     return genai.Client(api_key=api_key.strip())
+
+
+def _call_gemini_with_retry(
+    client: genai.Client,
+    model_name: str,
+    contents: list | str,
+    max_retries: int = 4,
+) -> str:
+    """استدعاء gemini-3.6-flash مع إعادة المحاولة التلقائية عند وجود ضغط مؤقت على الخوادم."""
+    target_model = model_name or DEFAULT_MODEL
+    delay = 2.0
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = client.models.generate_content(
+                model=target_model,
+                contents=contents,
+            )
+            return (response.text or "").strip()
+        except Exception as exc:
+            err_msg = str(exc)
+            is_busy = any(
+                code in err_msg
+                for code in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "high demand")
+            )
+            if is_busy and attempt < max_retries:
+                time.sleep(delay)
+                delay *= 2  # انتظار 2 ثانية ثم 4 ثم 8 ثوانٍ
+                continue
+            if is_busy:
+                raise RuntimeError(
+                    "خوادم Google تشهد ضغطاً مرتفعاً حالياً (503). تمت إعادة المحاولة 4 مرات تلقائياً، يرجى الانتظار لحظات ثم المحاولة مجدداً."
+                ) from exc
+            raise
+
+    return ""
 
 
 def extract_handwritten_questions(
@@ -39,11 +77,7 @@ def extract_handwritten_questions(
     for img_bytes, mime_type in images:
         contents.append(types.Part.from_bytes(data=img_bytes, mime_type=mime_type))
 
-    response = client.models.generate_content(
-        model=model_name or DEFAULT_MODEL,
-        contents=contents,
-    )
-    return (response.text or "").strip()
+    return _call_gemini_with_retry(client, model_name, contents)
 
 
 def extract_text_from_pdf_book(pdf_bytes: bytes) -> str:
@@ -93,11 +127,7 @@ def select_questions_from_book(
     for img_bytes, mime_type in images:
         contents.append(types.Part.from_bytes(data=img_bytes, mime_type=mime_type))
 
-    response = client.models.generate_content(
-        model=model_name or DEFAULT_MODEL,
-        contents=contents,
-    )
-    return (response.text or "").strip()
+    return _call_gemini_with_retry(client, model_name, contents)
 
 
 def generate_ministerial_exam_ai(
@@ -128,11 +158,7 @@ def generate_ministerial_exam_ai(
 - أعد ورقة الأسئلة مباشرة دون أي كلام تمهيدي.
 """
 
-    response = client.models.generate_content(
-        model=model_name or DEFAULT_MODEL,
-        contents=prompt,
-    )
-    return (response.text or "").strip()
+    return _call_gemini_with_retry(client, model_name, prompt)
 
 
 def fix_and_polish_exam_text(
@@ -157,8 +183,4 @@ def fix_and_polish_exam_text(
 {raw_text}
 """
 
-    response = client.models.generate_content(
-        model=model_name or DEFAULT_MODEL,
-        contents=prompt,
-    )
-    return (response.text or "").strip()
+    return _call_gemini_with_retry(client, model_name, prompt)
